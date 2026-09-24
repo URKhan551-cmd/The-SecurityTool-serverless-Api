@@ -766,3 +766,180 @@ if (messages.some(m => m === null))
 This means:
 If even one message is invalid, reject the entire conversation.
 That's a good fail-closed pattern for this kind of API validation.
+
+
+//
+
+51. SECURITY_HEADERS
+
+Now we're protecting the response.
+```
+export const SECURITY_HEADERS:
+  Record<string, string> = {
+```
+This is just a collection of HTTP security headers.
+Your serverless endpoint can do something like:
+```
+return new Response(body, {
+  headers: {
+    ...SECURITY_HEADERS,
+    ...getCorsHeaders(origin),
+  }
+});
+```
+So instead of manually writing these headers in every API function, you centralize them.
+That's good architecture.
+
+52. X-Content-Type-Options
+```
+X-Content-Type-Options: nosniff
+```
+Tells the browser:
+Don't try to guess a different content type than the server declared.
+
+53. X-Frame-Options
+```
+X-Frame-Options: DENY
+```
+Tells the browser:
+Don't allow this page to be embedded inside an iframe.
+This helps defend against clickjacking.
+
+//
+54. X-XSS-Protection
+```
+X-XSS-Protection: 1; mode=block
+```
+This is an older browser security header. Modern browsers generally don't rely on this mechanism, so it shouldn't be considered your primary XSS defense.
+
+Your real defense should come from things such as:
+
+safe rendering
+input validation
+output encoding
+Content Security Policy
+//
+55. HSTS
+``` 
+Strict-Transport-Security:
+max-age=31536000; includeSubDomains
+```
+This tells browsers:
+For the next 31,536,000 seconds, use HTTPS for this domain.
+That's:
+365 days
+Very important:
+Only use HSTS when your domain is properly HTTPS-enabled and you understand the implications of includeSubDomains.
+
+//
+
+56. Referrer Policy
+```
+Referrer-Policy:
+strict-origin-when-cross-origin
+```
+This controls how much referrer information the browser sends to other websites.
+Roughly:
+same-origin
+    → more information
+cross-origin
+    → reduced information
+This helps reduce accidental URL/path leakage.
+
+//
+57. Content Security Policy
+
+This is the biggest security header here:
+```
+"Content-Security-Policy": [...]
+  .join("; ")
+```
+You're building one HTTP header from several directives.
+
+Conceptually:
+
+CSP
+│
+├── default-src
+├── connect-src
+├── img-src
+├── script-src
+├── style-src
+└── font-src
+//
+
+58. default-src 'self'
+```
+default-src 'self'
+```
+Means:
+By default, only load resources from my own origin.
+'self' means your own website origin.
+//
+
+59. connect-src
+You have:
+```
+connect-src 'self'
+  https://weather.visualcrossing.com
+  https://generativelanguage.googleapis.com
+  https://*.basemaps.cartocdn.com
+```
+This controls network connections made by things like:
+fetch()
+XHR
+WebSocket
+
+So you're explicitly allowing your frontend/network layer to communicate with your weather API provider, Gemini endpoint, and map resources.
+
+//
+
+60. img-src
+```
+img-src 'self' data: https://unpkg.com https://*.cartocdn.com
+```
+This controls where images can come from.
+You allow:
+your own app
+data URLs
+unpkg
+Carto CDN
+
+//
+
+User
+ │
+ │ "Dubai"
+ ▼
+React
+ │
+ │ POST /api/weather
+ ▼
+Vercel Function
+ │
+ ├── getClientIp()
+ │       │
+ │       └── "203.0.113.10"
+ │
+ ├── checkRateLimit()
+ │       │
+ │       ├── count?
+ │       ├── limit?
+ │       └── allowed?
+ │
+ ├── isAllowedOrigin()
+ │       │
+ │       └── trusted website?
+│
+ ├── sanitizeLocation()
+ │       │
+ │       └── "Dubai"
+ │
+ ├── actual weather API call
+ │       │
+ │       └── Visual Crossing
+ │
+ └── SECURITY_HEADERS
+         │
+         ▼
+       Browser
