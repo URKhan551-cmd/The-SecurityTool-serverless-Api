@@ -479,3 +479,290 @@ development
 CORS restriction effectively disabled
 
 
+//
+29. getCorsHeaders()
+```
+export function getCorsHeaders(
+  origin: string | undefined
+): Record<string, string>
+```
+This function doesn't decide whether the origin is allowed itself
+It creates the HTTP headers that your API sends back.
+First:
+```
+const allowed = isAllowedOrigin(origin);
+```
+Then:
+```
+return {
+  "Access-Control-Allow-Origin":
+    allowed ? origin ?? "" : "",
+  ...
+};
+```
+If allowed:
+Access-Control-Allow-Origin: https://your-app.com
+If not:
+empty
+
+
+//
+30. CORS methods
+
+You have:
+```
+"Access-Control-Allow-Methods": "GET, POST, OPTIONS"
+```
+You're telling the browser:
+
+These HTTP methods are allowed for cross-origin requests.
+//
+
+31. CORS headers
+```
+"Access-Control-Allow-Headers": "Content-Type"
+```
+You're allowing the browser to send the Content-Type header.
+For example:
+```
+Content-Type: application/json
+```
+//
+32. Preflight caching
+```
+"Access-Control-Max-Age": "86400"
+```
+Means the browser can cache the CORS preflight decision for:
+86400 seconds  = 24 hours
+
+//
+
+33. sanitizeLocation()
+Now we move from network security to input validation/sanitization.
+```
+export function sanitizeLocation(
+  input: unknown
+): string | null
+```
+This is an excellent example of why unknown is useful.
+You're saying:
+I don't trust what comes into this function. It could literally be anything.
+Maybe:
+"Dubai"
+Maybe:
+123
+Maybe:
+null
+Maybe:
+{}
+Maybe malicious input.
+
+//
+
+34. Type check
+```
+if (typeof input !== "string")
+  return null;
+```
+Only strings are accepted.
+Therefore:
+sanitizeLocation("Dubai")
+can continue.
+But:
+sanitizeLocation(123)
+returns: null
+
+//
+35. Remove HTML tags
+```
+.replace(/<[^>]*>/g, "")
+```
+For example:
+```
+Dubai <script>alert(1)</script>
+```
+becomes approximately:
+Dubai alert(1)
+The tags themselves are removed.
+This is intended as defense against HTML injection/XSS when the value might eventually be rendered as HTML.
+
+//
+36. Remove null bytes
+.replace(/\0/g, "")
+A null byte is:
+\0
+You're removing it from input.
+//
+37. Trim whitespace
+.trim()
+Turns:
+"   Dubai   "
+
+//
+38. Limit length
+.slice(0, 100)
+
+Only the first 100 characters survive.
+
+This protects against unnecessarily huge location strings.
+//
+39. Empty input
+```
+if (cleaned.length < 1)
+  return null;
+```
+So:
+""
+becomes:
+null
+
+
+//
+40. sanitizeMessages()
+
+This is the bigger sanitizer because your AI endpoint accepts conversation history.
+```
+export function sanitizeMessages(
+  input: unknown
+): Array<{
+  role: string;
+  content: string;
+}> | null
+```
+It expects something conceptually like:
+```
+[
+  {
+    role: "user",
+    content: "What's the weather in Dubai?"
+  },
+  {
+    role: "model",
+    content: "Dubai is sunny..."
+  }
+]
+```
+
+41. Check array
+```
+if (!Array.isArray(input))
+  return null;
+```
+So:
+"hello"
+is rejected.
+{}
+is rejected
+
+[]
+is rejected.
+
+//
+42. Maximum 50 messages
+```
+if (input.length > 50)
+  return null;
+```
+This prevents someone from sending:
+10,000 messages
+to your AI endpoint.
+
+//
+43. Map each message
+```
+const messages = input.map(m => {
+```
+map() transforms every incoming message into a sanitized message.
+
+44. Check message object
+```
+if (
+  typeof m !== "object" ||
+  m === null
+)
+  return null;
+```
+You're making sure the message is an object.
+That's important because conversation history can become expensive.
+
+//
+45. Type assertion
+```
+const msg = m as Record<string, unknown>;
+```
+This tells TypeScript:
+Treat this object as a dictionary where property names are strings and values are unknown.
+Now you can inspect:
+msg.role
+msg.content
+without pretending that they're already trusted types.
+
+//
+46. Validate role
+```
+if (
+  msg.role !== "user" &&
+  msg.role !== "model"
+)
+  return null;
+```
+You're creating an allowlist.
+
+Only:
+```
+user
+model
+```
+are accepted.
+Not:
+admin
+system
+developer
+attacker
+
+//
+
+47. Validate content
+```
+if (typeof msg.content !== "string")
+  return null;
+```
+So:
+```
+{
+  role: "user",
+  content: 123
+}
+```
+is rejected.
+
+//
+48. Sanitize message content
+```
+content: msg.content
+  .replace(/<[^>]*>/g, "")
+  .replace(/\0/g, "")
+  .slice(0, 2000)
+```
+You're doing three things:
+HTML tags
+   ↓
+remove
+null bytes
+   ↓
+remove
+> 2000 characters
+   ↓
+truncate
+So every individual msg has size of 2000 chars
+
+//
+49. Check whether any message failed
+
+```
+if (messages.some(m => m === null))
+  return null;
+```
+This means:
+If even one message is invalid, reject the entire conversation.
+That's a good fail-closed pattern for this kind of API validation.
